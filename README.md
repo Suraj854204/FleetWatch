@@ -1,88 +1,68 @@
-# Fleetwatch – fleet operations dashboard
+# Fleetwatch – Fleet Operations Dashboard
 
-A focused fleet dashboard for an internal operations team, built for the Bytebeam Frontend Intern assignment.
-React + TypeScript + Vite, Supabase (Auth + Postgres), Leaflet map.
+A focused, single-screen operations dashboard designed for real-time fleet oversight and alert resolution. Built for the Bytebeam Frontend Intern assignment.
 
-## Live demo
+**Tech Stack:** React, TypeScript, Vite, Supabase (Auth + Postgres), Leaflet.
 
-- **URL:** `<ADD DEPLOYED URL>`
-- **Demo login:** `demo@fleetwatch.app` / `Fleet@Demo2026` (created by `npm run seed:user`, see below)
-- **Walkthrough (optional):** `<ADD LINK>`
+---
 
-## Project overview
+## Live Demo & Credentials
 
-An ops user opens the app and answers four questions without clicking anything:
+* **Deployment:** [https://fleetwatch-roan.vercel.app/](https://fleetwatch-roan.vercel.app/)
+* **Demo Account:** `fleetuser@gmail.com`
+* **Demo Password:** `Demo12345`
 
-1. **Is anything wrong?** The left column lists open alerts ordered by severity (critical, then warning). The header shows moving vehicles, vehicles needing attention, and 24 h trips, distance and overspeed events.
-2. **Where is everyone?** The map shows every vehicle, coloured by status (moving, idling, parked, offline, in workshop).
-3. **What did this vehicle do?** Click a vehicle (or an alert) and its latest trip is drawn on the map, **coloured by speed** against that vehicle's limit (green within limit, amber near it, red over). Start and end points are marked.
-4. **Where exactly did it go wrong?** Expand a trip to see distance, duration, average and max speed, idle time and halts, a speed-over-time chart with the limit line, and a **replay slider**. Dragging the slider or hovering the chart moves a marker along the route, so "max 83 km/h" becomes "83 km/h at this junction".
+---
 
-### Main product decisions
+## Operations Workflow
 
-- **Few metrics, chosen for action.** Vehicle: status, speed, ignition, fuel, battery, last seen, odometer, limit. Trip: distance, duration, avg/max speed, idle time, halts, overspeed events. Things that need a decision (low fuel, low battery, offline, overspeeding) are promoted to alerts instead of left as numbers to notice.
-- **Attention first.** Alerts sit above the vehicle list. Informational notices (workshop, long idling) are hidden by default so they do not bury real problems. Alerts can be acknowledged and that is persisted.
-- **Alerts deep-link.** Clicking an overspeed alert selects the vehicle and opens the exact trip that caused it.
-- **Route colouring is the stretch feature.** Together with replay and the "Overspeed only" trip filter it makes the route analytical, not decorative.
-- Not built on purpose: live GPS ingestion, geofences, driver management, a landing page.
+The dashboard delivers immediate situational awareness without requiring navigation or configuration clicks:
 
-## Local setup
+1. **System Health & Critical Alerts:** The left column renders open alerts sorted by urgency (critical, warning). Header counters provide aggregated statistics on active movement, flagged vehicles, and 24-hour distance/overspeed totals.
+2. **Geospatial Tracking:** The central map panel plots all active assets, color-coded by operational state (*moving*, *idling*, *parked*, *offline*, *in workshop*).
+3. **Trip Telemetry & Speed Analysis:** Selecting a vehicle or deep-linking from an alert loads the latest journey onto the map. Polyline segments are dynamically color-coded relative to the vehicle's speed limit (green $\le 100\%$, amber $100\text{--}110\%$, red $> 110\%$).
+4. **Telemetry Scrubbing & Root-Cause Inspection:** Expanding trip details exposes metrics (distance, duration, average/max speed, idle time, halt count), a speed-over-time chart with a threshold line, and an interactive replay slider. Moving the slider or hovering the chart synchronizes the map marker position for point-in-time spatial analysis.
 
-Requires Node 18+.
+---
+
+## Key Engineering & Product Decisions
+
+* **Action-Oriented Domain Model:** Low fuel, critical battery, offline states, and severe overspeeding are surfaced directly as actionable alerts with persistent resolution states (`alerts.resolved`), avoiding manual grid scanning.
+* **Alert Deep-Linking:** Interacting with a speed alert automatically selects the asset and loads the corresponding telemetry segment.
+* **Zero-Configuration Mapping:** Leaflet and `react-leaflet` use CARTO light tiles to avoid API key setups for code reviewers while providing clear contrast for route polylines.
+* **Optimized Network Architecture:** Vehicle states and aggregated trip metrics are pre-calculated and stored in denormalized tables (`vehicles`, `trips`). Detailed GPS coordinates (`trip_points`) are fetched on-demand only when a trip is selected.
+
+---
+
+## Architecture & Data Model
+
+### Entity-Relationship Overview
+
+* **`vehicles` (1) $\rightarrow$ `trips` (N):** Operational states and running averages.
+* **`trips` (1) $\rightarrow$ `trip_points` (N):** Time-series GPS breadcrumbs (`lat`, `lng`, `speed_kmh`, `recorded_at`).
+* **`vehicles` (1) $\rightarrow$ `alerts` (N) $\rightarrow$ `trips` (0..1):** Operational flags with optional trip context (`on delete set null`).
+
+### Database Schema
+
+| Table | Purpose | Core Columns |
+|---|---|---|
+| `vehicles` | Asset current state | `id`, `status`, `ignition`, `fuel_pct`, `battery_v`, `speed_limit_kmh`, `last_lat`, `last_lng`, `last_speed_kmh`, `last_seen` |
+| `trips` | Aggregated journey telemetry | `id`, `vehicle_id`, `status`, `start_name`, `end_name`, `distance_km`, `duration_min`, `avg_speed_kmh`, `max_speed_kmh`, `idle_min`, `halt_count`, `overspeed_count` |
+| `trip_points` | High-frequency GPS coordinates | `id`, `trip_id`, `vehicle_id`, `recorded_at`, `lat`, `lng`, `speed_kmh` |
+| `alerts` | Operator action items | `id`, `vehicle_id`, `trip_id`, `type`, `severity`, `message`, `resolved` |
+
+**Security:** Row Level Security (RLS) is enabled on all tables. Authenticated users are granted read access across all tables and write access to update the `resolved` field on `alerts`.
+
+---
+
+## Local Setup & Environment
+
+### Prerequisites
+* Node.js $\ge 18$
+* Supabase project
+
+### Installation
 
 ```bash
 npm install
-cp .env.example .env      # then fill in the two values from Supabase -> Project Settings -> API
-npm run dev               # http://localhost:5173
-```
-
-`npm run build` type-checks and produces `dist/` for deployment.
-
-## Supabase setup
-
-1. Create a project at supabase.com.
-2. **Schema:** SQL Editor -> paste `supabase/schema.sql` -> Run.
-3. **Seed data:** SQL Editor -> paste `supabase/seed.sql` -> Run (about 230 KB: 12 vehicles, 69 trips, ~1,500 GPS points, 45 alerts). Re-running resets the demo data.
-4. **Auth:** Authentication -> Providers: Email is enabled by default. Create the demo user either way:
-   - Dashboard: Authentication -> Users -> Add user (tick *Auto confirm*), or
-   - Script: `SUPABASE_URL=https://xxxx.supabase.co SUPABASE_SERVICE_ROLE_KEY=... npm run seed:user` (service-role key stays on your machine, never in the app).
-5. Put the project URL and **anon** key in `.env` (or in the host's environment variables when deploying: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`).
-
-### Data model
-
-| Table | Purpose | Key columns |
-|---|---|---|
-| `vehicles` | Current state of each unit | `status`, `ignition`, `fuel_pct`, `battery_v`, `speed_limit_kmh`, `last_lat/lng`, `last_speed_kmh`, `last_seen` |
-| `trips` | One row per journey with pre-aggregated stats | `vehicle_id` -> vehicles, `status` (in_progress/completed), start/end name and coordinates, `distance_km`, `duration_min`, `avg/max_speed_kmh`, `idle_min`, `halt_count`, `overspeed_count` |
-| `trip_points` | GPS breadcrumbs for drawing and replaying a route | `trip_id` -> trips, `vehicle_id` -> vehicles, `recorded_at`, `lat`, `lng`, `speed_kmh` |
-| `alerts` | Operator-facing issues | `vehicle_id`, optional `trip_id`, `type`, `severity`, `message`, `resolved` |
-
-Relationships: vehicles 1-N trips 1-N trip_points; vehicles 1-N alerts; alerts N-0..1 trips (`on delete set null`).
-Row Level Security is on for every table: signed-in users can read everything and may update alerts (acknowledge). Nobody else can read or write.
-
-## Technical decisions and tradeoffs
-
-- **Vite + React + TypeScript, no router/state library.** The app is one authenticated screen; a session check gates it (`App.tsx`), and a small hook (`useFleet`) loads data and refreshes every 30 s. Fewer moving parts, easier to review.
-- **Leaflet + react-leaflet with CARTO light tiles.** Free, no API key, so the project runs for reviewers with zero extra setup. Mapbox/MapLibre GL would give smoother vector rendering but needs a token or tile hosting.
-- **Denormalised aggregates.** `trips` stores distance/avg/max/idle/halts/overspeed and `vehicles` stores `last_*` fields. Lists and the map need one cheap query each; points are fetched only for the selected trip. In production these would be computed by the ingestion pipeline or a database trigger.
-- **Alerts are rows, not computed in the browser.** That lets operators acknowledge them and keeps the rules in one place (here generated by the seed script; in production by a backend job).
-- **Per-vehicle speed limit** drives overspeed colouring and counting. Real systems would use road-segment limits.
-- **Seeded data is a snapshot.** Timestamps are written relative to when the seed runs. If the seed is older than ~10 minutes when the app is opened, the UI shifts its clock so "last seen" and "last 24 h" stay meaningful. Re-run `seed.sql` to refresh for real.
-- **Routes are synthetic by default.** `scripts/generate-seed.mjs` builds curved paths between real Lucknow locations (coordinates approximate) so the seed is deterministic and works offline. Run `OSRM=1 npm run seed:generate` to snap routes to real roads via the public OSRM server, then re-run the new `seed.sql`.
-- Bundle is a single ~550 kB chunk (Leaflet + Supabase client); fine for an internal tool, would be code-split next.
-
-## AI usage
-
-- **Tool:** Claude (claude.ai). Chat links are in `AI_CHAT_LOGS.md`.
-- **Where it helped:** reading the assignment and planning scope, drafting the schema and RLS policies, the seed generator (route simulation, trip statistics, alerts), React components and CSS.
-- **How output was reviewed/modified:** `<FILL IN: what you checked, ran, and changed yourself, e.g. adjusted the metrics shown, changed colours, tested login/RLS in your own Supabase project>`. Keep this honest and specific; reviewers read it.
-
-## Project structure
-
-```
-src/auth/        Supabase auth provider and login page
-src/data/        useFleet (vehicles, trips, alerts) and useTripPoints hooks
-src/components/  Dashboard, Sidebar, FleetMap, VehiclePanel, SpeedChart
-supabase/        schema.sql, seed.sql (generated)
-scripts/         generate-seed.mjs, create-demo-user.mjs
-```
+cp .env.example .env
